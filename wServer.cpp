@@ -180,7 +180,7 @@ void wServerClass::handleNameChange(QTcpSocket* client, QString msg) {
         updateQuery.exec(); 
 
         idToName[userId] = std::move(newUsername);
-        respCode = static_cast<int>(serverResponse::OK);
+        respCode = static_cast<int>(serverResponse::Successful);
     }
     else respCode = static_cast<int>(serverResponse::UsernameExists);
 
@@ -228,3 +228,4 @@ QString wServerClass::generateSalt() {
 
 wServerClass::~wServerClass()
 {}
+
