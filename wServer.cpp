@@ -98,6 +98,8 @@ void wServerClass::handleRegistration(QTcpSocket* client, QString msg) {
     checkQuery.exec();
 
     int respCode = -1;
+    int userId;
+    bool regSuccessful = false;
 
     if (checkQuery.next() && checkQuery.value(0).toInt() == 0) {
         QString salt = generateSalt();
@@ -112,19 +114,27 @@ void wServerClass::handleRegistration(QTcpSocket* client, QString msg) {
         regQuery.bindValue(":slt", salt);
         regQuery.exec();
 
-        int userId = regQuery.lastInsertId().toInt();
-        idToName[userId] = std::move(username);
+        userId = regQuery.lastInsertId().toInt();
+        idToName[userId] = username;
         idToSocket[userId] = client;
         socketToId[client] = userId;
 
         respCode = static_cast<int>(serverResponse::Registered);
+        regSuccessful = true;
     }
     else {
         respCode = static_cast<int>(serverResponse::UsernameExists);
     }
 
-    QByteArray byteArrayResp = QByteArray::number(respCode);
-    client->write(byteArrayResp);
+    QByteArray response;
+    if (regSuccessful) {
+        QString formatedMsg = QString("%1 %2 %3").arg(respCode).arg(userId).arg(username);
+        response = formatedMsg.toUtf8();
+    }
+    else {
+        response = QByteArray::number(respCode);
+    }
+    client->write(response);
 }
 
 void wServerClass::handleLogin(QTcpSocket* client, QString msg) {
