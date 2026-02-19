@@ -32,7 +32,7 @@ void wServerClass::setupUI() {
     ui.onlineField->setReadOnly(true);
 }
 
-void wServerClass::setupServer() {
+void wServerClass::setupServer() {    
     server.listen(QHostAddress::LocalHost, 1402);
     connect(&server, &QTcpServer::newConnection, this, &wServerClass::onNewConnection);
 }
@@ -133,6 +133,9 @@ void wServerClass::handleLogin(QTcpSocket* client, QString msg) {
     QString password = msgParts[1];
 
     int respCode = -1;
+    int userId;
+    bool loginSuccessful = false;
+    
 
     QSqlQuery checkDataQuery;
     checkDataQuery.prepare("SELECT password, salt, id FROM users WHERE username = :name");
@@ -142,28 +145,37 @@ void wServerClass::handleLogin(QTcpSocket* client, QString msg) {
     if (checkDataQuery.next()) {
         QString hashFromDB = checkDataQuery.value(0).toString();
         QString saltFromDB = checkDataQuery.value(1).toString();
-        int userId = checkDataQuery.value(2).toInt();
+        userId = checkDataQuery.value(2).toInt();
 
         QByteArray bArrHash = QCryptographicHash::hash((password + saltFromDB).toUtf8(), QCryptographicHash::Sha256);
         QString hashedStr = bArrHash.toHex();
 
         if (hashedStr == hashFromDB) {
-            idToName[userId] = std::move(username);
+            idToName[userId] = username;
             idToSocket[userId] = client;
             socketToId[client] = userId;
             respCode = static_cast<int>(serverResponse::LoginOK);
+            loginSuccessful = true;
         }
         else respCode = static_cast<int>(serverResponse::WrongPassword);
     }
     else respCode = static_cast<int>(serverResponse::UserNotFound);
 
-    QByteArray byteArrayResp = QByteArray::number(respCode);
-    client->write(byteArrayResp);
+    QByteArray response;
+    if (loginSuccessful) {
+        QString formatedMsg = QString("%1 %2 %3").arg(respCode).arg(userId).arg(username);
+        response = formatedMsg.toUtf8();
+    }
+    else {
+        response = QByteArray::number(respCode);
+    }
+    client->write(response);
 }
 
 void wServerClass::handleNameChange(QTcpSocket* client, QString msg) {
     int userId = socketToId[client];
     QString newUsername = std::move(msg);
+    bool changeSuccessful = false;
 
     QSqlQuery checkQuery;
     checkQuery.prepare("SELECT COUNT(username) FROM users WHERE username = :name");
@@ -179,20 +191,28 @@ void wServerClass::handleNameChange(QTcpSocket* client, QString msg) {
         updateQuery.bindValue(":id", userId);
         updateQuery.exec(); 
 
-        idToName[userId] = std::move(newUsername);
+        idToName[userId] = newUsername;
         respCode = static_cast<int>(serverResponse::Successful);
+        changeSuccessful = true;
     }
     else respCode = static_cast<int>(serverResponse::UsernameExists);
 
-    QByteArray byteArrayResp = QByteArray::number(respCode);
-    client->write(byteArrayResp);
+    QByteArray response;
+    if (changeSuccessful) {
+        QString formatedMsg = QString("%1 %2").arg(respCode).arg(newUsername);
+        response = formatedMsg.toUtf8();
+    }
+    else {
+        response = QByteArray::number(respCode);
+    } 
+    client->write(response);
 }
 
 void wServerClass::handleChatMsg(QTcpSocket* client, QString msg) {
     int senderId = socketToId[client];
     int respCode = static_cast<int>(serverResponse::Message);
     QString msgForChat = std::move(msg);
-    QString formatedMsg = QString("%1 %2: %3").arg(respCode).arg(idToName[senderId]).arg(msgForChat);
+    QString formatedMsg = QString("%1 %2 %3 %4").arg(respCode).arg(senderId).arg(idToName[senderId]).arg(msgForChat);
 
     for (auto cl : socketToId.keys()) {
         if (cl != client) cl->write(formatedMsg.toUtf8());
@@ -212,7 +232,7 @@ void wServerClass::handlePrivateMsg(QTcpSocket* client, QString msg) {
     respCode = static_cast<int>(serverResponse::PrivateMessage);
     int senderId = socketToId[client];
     QString msgForUser = msg.section(' ', 1);
-    QString formatedMsg = QString("%1 %2: %3").arg(respCode).arg(idToName[senderId]).arg(msgForUser);
+    QString formatedMsg = QString("%1 %2 %3 %4").arg(respCode).arg(senderId).arg(idToName[senderId]).arg(msgForUser);
     idToSocket[recipientId]->write(formatedMsg.toUtf8());
 }
 
@@ -228,4 +248,3 @@ QString wServerClass::generateSalt() {
 
 wServerClass::~wServerClass()
 {}
-
