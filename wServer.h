@@ -29,12 +29,11 @@ private:
     QHash<int, QString> idToName;
 
     void setupDB();
-    void setupUI();
     void setupServer();
-
-    void processClientMsg(QTcpSocket* client);
     void setupTimer();
 
+    void processClientMsg(QTcpSocket* client);
+    
     void handleRegistration(QTcpSocket* client, QString msg);
     void handleNameChange(QTcpSocket* client, QString msg);
     void handleLogin(QTcpSocket* client, QString msg);
@@ -46,4 +45,5 @@ private:
     void qLogger(QTcpSocket* client, const clientQuery query);
     void rLogger(QTcpSocket* client, const serverResponse response);
 };
+
 
