@@ -56,6 +56,9 @@ void wServerClass::onNewConnection() {
             idToName.remove(userId);
             idToSocket.remove(userId);
             socketToId.remove(newClient);
+            QTimer::singleShot(100, [this]() {
+                sendOnlineList();
+                });
         }
         newClient->deleteLater();
         });
@@ -139,6 +142,9 @@ void wServerClass::handleRegistration(QTcpSocket* client, QString msg) {
     QByteArray response;
     if (regSuccessful) {
         QString formatedMsg = QString("%1 %2 %3").arg(respCode).arg(userId).arg(username);
+        QTimer::singleShot(100, [this]() {
+            sendOnlineList();
+            });
         response = formatedMsg.toUtf8();
     }
     else {
@@ -188,6 +194,9 @@ void wServerClass::handleLogin(QTcpSocket* client, QString msg) {
     if (loginSuccessful) {
         QString formatedMsg = QString("%1 %2 %3").arg(respCode).arg(userId).arg(username);
         response = formatedMsg.toUtf8();
+        QTimer::singleShot(100, [this]() {
+            sendOnlineList();
+            });
     }
     else {
         response = QByteArray::number(respCode);
@@ -245,7 +254,7 @@ void wServerClass::handleChatMsg(QTcpSocket* client, QString msg) {
     int senderId = socketToId[client];
     int respCode = static_cast<int>(serverResponse::Message);
     QString msgForChat = std::move(msg);
-    QString formatedMsg = QString("%1 %2 %3 %4").arg(respCode).arg(senderId).arg(idToName[senderId]).arg(msgForChat);
+    QString formatedMsg = QString("%1 %2 %3").arg(respCode).arg(idToName[senderId]).arg(msgForChat);
 
     for (auto cl : socketToId.keys()) {
         if (cl != client) cl->write(formatedMsg.toUtf8());
@@ -277,6 +286,19 @@ void wServerClass::handlePrivateMsg(QTcpSocket* client, QString msg) {
 
 void wServerClass::handleLogout(QTcpSocket* client, QString msg) {
     client->disconnectFromHost();
+}
+
+void wServerClass::sendOnlineList() {
+    int respCode = static_cast<int>(serverResponse::UpdateOnline);
+    QString response = QString::number(respCode);
+    for (const auto& userId : idToName.keys()) {
+        response += QString(" %1 %2").arg(userId).arg(idToName[userId]);
+    }
+    QByteArray bArrResp = response.toUtf8();
+    for (QTcpSocket* client : socketToId.keys()) {
+        client->write(bArrResp);
+        rLogger(client, serverResponse::UpdateOnline);
+    }
 }
 
 QString wServerClass::generateSalt() {

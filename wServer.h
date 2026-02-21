@@ -29,21 +29,23 @@ private:
     QHash<int, QString> idToName;
 
     void setupDB();
+    void setupUI();
     void setupServer();
-    void setupTimer();
 
     void processClientMsg(QTcpSocket* client);
-    
+    void setupTimer();
+
     void handleRegistration(QTcpSocket* client, QString msg);
     void handleNameChange(QTcpSocket* client, QString msg);
     void handleLogin(QTcpSocket* client, QString msg);
     void handleChatMsg(QTcpSocket* client, QString msg);
     void handlePrivateMsg(QTcpSocket* client, QString msg); 
     void handleLogout(QTcpSocket* client, QString msg);
-    QString generateSalt();
+    void sendOnlineList();
 
+    QString generateSalt();
+    
     void qLogger(QTcpSocket* client, const clientQuery query);
     void rLogger(QTcpSocket* client, const serverResponse response);
 };
-
 
