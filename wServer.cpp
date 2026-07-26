@@ -4,11 +4,11 @@
 wServerClass::wServerClass(QWidget* parent)
     : QWidget(parent) {
 
-        setupDB();
-        setupServer();
-        setupTimers();
-        ui.setupUi(this);
-    }
+    ui.setupUi(this);
+    setupDB();
+    setupServer();
+    setupTimers();
+}
 
 void wServerClass::setupDB() {
 
@@ -49,7 +49,7 @@ void wServerClass::setupDB() {
     );
 }
 
-void wServerClass::setupServer() {    
+void wServerClass::setupServer() {
     server.listen(QHostAddress::LocalHost, 1403);
     connect(&server, &QTcpServer::newConnection, this, &wServerClass::onNewConnection);
 }
@@ -76,25 +76,28 @@ void wServerClass::setupTimers() {
 
 void wServerClass::onNewConnection() {
     QTcpSocket* newClient = server.nextPendingConnection();
+    auto* state = new clientState{0, true};
     int descr = newClient->socketDescriptor();
-    connect(newClient, &QTcpSocket::readyRead, this, [this, newClient]() {
+
+    connect(newClient, &QTcpSocket::readyRead, this, [this, state, newClient]() {
         while (true) {
-            if (waitingForSize) {
+            if (state->waitingForSize) {
                 if (newClient->bytesAvailable() < 4) return;
                 QByteArray sizeBytes = newClient->read(4);
-                sizeOfData = sizeBytes.toInt();
-                waitingForSize = false;
+                QDataStream stream(sizeBytes);
+                stream >> state->sizeOfData;
+                state->waitingForSize = false;
             }
             else {
-                if (newClient->bytesAvailable() < sizeOfData) return;
-                QByteArray data = newClient->read(sizeOfData);
+                if (newClient->bytesAvailable() < state->sizeOfData) return;
+                QByteArray data = newClient->read(state->sizeOfData);
                 processClientMsg(newClient, data);
-                waitingForSize = true;
+                state->waitingForSize = true;
             }
         }
         });
 
-    connect(newClient, &QTcpSocket::disconnected, this, [this, newClient, descr]() {
+    connect(newClient, &QTcpSocket::disconnected, this, [this, state, newClient, descr]() {
         if (socketToId.contains(newClient)) {
             int userId = socketToId[newClient];
             ui.oField->append(QString("Клиент #%1 отключился").arg(descr));
@@ -103,13 +106,14 @@ void wServerClass::onNewConnection() {
             socketToId.remove(newClient);
             sendOnlineList();
         }
+        delete state;
         newClient->deleteLater();
         });
 }
 
 void wServerClass::processClientMsg(QTcpSocket* client, const QByteArray& utf8msg) {
     QString strmsg = QString::fromUtf8(utf8msg);
-    int code = strmsg.section(' ', 0, 0).toInt(); 
+    int code = strmsg.section(' ', 0, 0).toInt();
     QString textMsg = strmsg.section(' ', 1);
     clientQuery command = static_cast<clientQuery>(code);
 
@@ -144,7 +148,7 @@ void wServerClass::processClientMsg(QTcpSocket* client, const QByteArray& utf8ms
 }
 
 void wServerClass::handleRegistration(QTcpSocket* client, const QString& msg) {
-    QStringList msgParts = msg.split('\n'); 
+    QStringList msgParts = msg.split('\n');
     QString username = msgParts[0];
     QString password = msgParts[1];
 
@@ -180,12 +184,8 @@ void wServerClass::handleRegistration(QTcpSocket* client, const QString& msg) {
         QString formatedMsg = QString("%1\n%2").arg(userId).arg(username);
         sendPacket(client, serverResponse::Registered, formatedMsg);
         sendOnlineList();
-        rLogger(client, serverResponse::Registered);
     }
-    else {
-        sendPacket(client, serverResponse::UsernameExists); 
-        rLogger(client, serverResponse::UsernameExists);
-    }
+    else sendPacket(client, serverResponse::UsernameExists);
 }
 
 void wServerClass::handleLogin(QTcpSocket* client, const QString& msg) {
@@ -221,46 +221,36 @@ void wServerClass::handleLogin(QTcpSocket* client, const QString& msg) {
     }
     else {
         sendPacket(client, serverResponse::UserNotFound);
-        rLogger(client, serverResponse::UserNotFound);
         return;
     }
 
     QString formatedMsg;
 
     if (loginSuccessful) {
-        formatedMsg = QString("%1\n%2").arg(userId).arg(username);  
+        formatedMsg = QString("%1\n%2").arg(userId).arg(username);
         sendPacket(client, serverResponse::LoginOK, formatedMsg);
         sendOnlineList();
-        rLogger(client, serverResponse::LoginOK);
     }
-    else {
-        sendPacket(client, serverResponse::WrongPassword);
-        rLogger(client, serverResponse::WrongPassword);
-    }
+    else sendPacket(client, serverResponse::WrongPassword);
 }
 
-void wServerClass::handleNameChange(QTcpSocket* client, QString msg) {
+void wServerClass::handleNameChange(QTcpSocket* client, QString& msg) {
     int userId = socketToId[client];
-    bool changeSuccessful = false;
     QString formatedMsg;
-    QString newUsername = std::move(msg);
-
-    if (newUsername.length() > 14) {
-        sendPacket(client, serverResponse::NameTooLong);
-        return;
-    }
+    QString newUsername = msg;
 
     QSqlQuery checkQuery;
     checkQuery.prepare("SELECT COUNT(username) FROM users WHERE username = :name");
     checkQuery.bindValue(":name", newUsername);
     checkQuery.exec();
 
+    bool changeSuccessful = false;
     if (checkQuery.next() && checkQuery.value(0).toInt() == 0) {
         QSqlQuery updateQuery;
         updateQuery.prepare("UPDATE users SET username = :newName WHERE id = :id");
         updateQuery.bindValue(":newName", newUsername);
         updateQuery.bindValue(":id", userId);
-        updateQuery.exec(); 
+        updateQuery.exec();
 
         idToName[userId] = newUsername;
         changeSuccessful = true;
@@ -269,12 +259,8 @@ void wServerClass::handleNameChange(QTcpSocket* client, QString msg) {
     if (changeSuccessful) {
         sendPacket(client, serverResponse::Successful, newUsername);
         sendOnlineList();
-        rLogger(client, serverResponse::Successful);
     }
-    else {
-        sendPacket(client, serverResponse::UsernameExists);
-        rLogger(client, serverResponse::UsernameExists);
-    } 
+    else sendPacket(client, serverResponse::UsernameExists);
 }
 
 void wServerClass::handleChatMsg(QTcpSocket* client, const QString& msg) {
@@ -282,8 +268,8 @@ void wServerClass::handleChatMsg(QTcpSocket* client, const QString& msg) {
     QString formatedMsg = QString("%1\n%2").arg(idToName[senderId]).arg(msg);
 
     for (auto cl : socketToId.keys()) {
-        if (cl != client) sendPacket(cl, serverResponse::Message, formatedMsg);
-        rLogger(cl, serverResponse::Message);
+        if (cl == client) continue;
+        sendPacket(cl, serverResponse::Message, formatedMsg);
     }
     saveToDB(senderId, idToName[senderId], 0, msg);
 }
@@ -296,10 +282,7 @@ void wServerClass::handlePrivateMsg(QTcpSocket* client, const QString& msg) {
 
     if (idToSocket.contains(recipientId)) {
         sendPacket(idToSocket[recipientId], serverResponse::PrivateMessage, formatedMsg);
-        rLogger(idToSocket[recipientId], serverResponse::PrivateMessage);
     }
-    else rLogger(client, serverResponse::UserNotFound);
-
     saveToDB(senderId, idToName[senderId], recipientId, msgForUser);
 }
 
@@ -312,12 +295,10 @@ void wServerClass::sendOnlineList() {
     for (const auto& userId : idToName.keys()) {
         list << QString("%1\n%2").arg(userId).arg(idToName[userId]);
     }
-
     QString response = list.join("\n\n");
 
     for (QTcpSocket* client : socketToId.keys()) {
         sendPacket(client, serverResponse::UpdateOnline, response);
-        rLogger(client, serverResponse::UpdateOnline);
     }
 }
 
@@ -325,15 +306,20 @@ void wServerClass::sendPacket(QTcpSocket* client, const serverResponse response,
     int respCode = static_cast<int>(response);
     QString formatedData = data.isEmpty() ? QString::number(respCode) : QString("%1 %2").arg(respCode).arg(data);
     QByteArray bArrData = formatedData.toUtf8();
-    int dataSize = bArrData.size();
-    QByteArray packet = QByteArray::number(dataSize).rightJustified(4, '0') + bArrData;
+    qint32 dataSize = bArrData.size();
+
+    QByteArray packet;
+    QDataStream stream(&packet, QIODeviceBase::WriteOnly);
+    stream << dataSize;
+    packet += bArrData;
     client->write(packet);
+    rLogger(client, response);
 }
 
 void wServerClass::sendHistory(QTcpSocket* client, const QString& msg) {
     int otherId = msg.toInt();
     QSqlQuery query;
-    if (otherId != 0){
+    if (otherId != 0) {
         query.prepare(
             "SELECT senderId, senderName, message FROM history "
             "WHERE (senderId = :sender AND recipientId = :recipient) "
@@ -346,11 +332,13 @@ void wServerClass::sendHistory(QTcpSocket* client, const QString& msg) {
 
     }
     else {
-        query.exec(
+        query.prepare(
             "SELECT senderId, senderName, message FROM history "
-            "WHERE recipientId = 0 "
+            "WHERE recipientId = :recipient "
             "ORDER BY id"
         );
+        query.bindValue(":recipient", 0);
+        query.exec();
     }
 
     QStringList list;
@@ -366,7 +354,6 @@ void wServerClass::sendHistory(QTcpSocket* client, const QString& msg) {
 
     QString response = QString("%1\n%2").arg(otherId).arg(list.join("\n\n"));
     sendPacket(client, serverResponse::SendHistory, response);
-    rLogger(client, serverResponse::SendHistory);
 }
 
 void wServerClass::saveToDB(const int senderId, const QString& senderName, const int recipientId, const QString& msg) {
@@ -385,7 +372,7 @@ QString wServerClass::generateSalt() {
     return salt.toHex();
 }
 
-void wServerClass::qLogger(QTcpSocket* client, clientQuery query){
+void wServerClass::qLogger(QTcpSocket* client, clientQuery query) {
     QString text = QString("<font color='#821d8a'>[from: #%1]: %2</font>").arg(client->socketDescriptor()).arg(toStrQ(query));
     ui.oField->append(text);
 }
@@ -400,9 +387,5 @@ wServerClass::~wServerClass() {
     for (auto client : socketToId.keys()) {
         client->disconnect();
     }
-    socketToId.clear();
-    idToSocket.clear();
-    idToName.clear();
 }
-
 

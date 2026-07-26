@@ -19,9 +19,10 @@ private slots:
     void onNewConnection();
     
 private:
-
-    int sizeOfData = 0;
-    bool waitingForSize = true;
+    struct clientState {
+        qint32 sizeOfData = 0;
+        bool waitingForSize = true;
+    };
 
     QSqlDatabase chatDB;
     QTcpServer server;
@@ -40,7 +41,7 @@ private:
     void processClientMsg(QTcpSocket* client, const QByteArray& utf8msg);
 
     void handleRegistration(QTcpSocket* client, const QString& msg);
-    void handleNameChange(QTcpSocket* client, QString msg);
+    void handleNameChange(QTcpSocket* client, QString& msg);
     void handleLogin(QTcpSocket* client, const QString& msg);
     void handleChatMsg(QTcpSocket* client, const QString& msg);
     void handlePrivateMsg(QTcpSocket* client, const QString& msg);
