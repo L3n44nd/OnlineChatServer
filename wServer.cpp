@@ -34,7 +34,7 @@ void wServerClass::setupDB() {
     QSqlQuery query;
     query.exec(
         "CREATE TABLE IF NOT EXISTS users ("
-        "id SERIAL PRIMARY KEY, "
+        "id SERIAL PRIMARY KEY NOT NULL, "
         "username TEXT UNIQUE, "
         "password TEXT,"
         "salt TEXT)"
@@ -117,7 +117,7 @@ void wServerClass::processClientMsg(QTcpSocket* client, const QByteArray& utf8ms
     QString textMsg = strmsg.section(' ', 1);
     clientQuery command = static_cast<clientQuery>(code);
 
-    if (command != clientQuery::Logout) qLogger(client, command);
+    qLogger(client, command);
 
     switch (command)
     {
@@ -126,9 +126,6 @@ void wServerClass::processClientMsg(QTcpSocket* client, const QByteArray& utf8ms
         break;
     case clientQuery::Login:
         handleLogin(client, textMsg);
-        break;
-    case clientQuery::Logout:
-        handleLogout(client, textMsg);
         break;
     case clientQuery::Message:
         handleChatMsg(client, textMsg);
@@ -286,10 +283,6 @@ void wServerClass::handlePrivateMsg(QTcpSocket* client, const QString& msg) {
     saveToDB(senderId, idToName[senderId], recipientId, msgForUser);
 }
 
-void wServerClass::handleLogout(QTcpSocket* client, const QString& msg) {
-    client->disconnectFromHost();
-}
-
 void wServerClass::sendOnlineList() {
     QStringList list;
     for (const auto& userId : idToName.keys()) {
@@ -332,13 +325,11 @@ void wServerClass::sendHistory(QTcpSocket* client, const QString& msg) {
 
     }
     else {
-        query.prepare(
+        query.exec(
             "SELECT senderId, senderName, message FROM history "
-            "WHERE recipientId = :recipient "
+            "WHERE recipientId = 0 "
             "ORDER BY id"
         );
-        query.bindValue(":recipient", 0);
-        query.exec();
     }
 
     QStringList list;
