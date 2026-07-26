@@ -2,13 +2,11 @@
 Многопользовательский онлайн-чат. C++17, Qt 6 (widgets, network, sql).
 
 Серверная часть:
-  - база данных PostgeSQL
   - безопасное хранение паролей
-  - логирование действий пользователей
   - одновременная обработка подключений
   - отображение количества онлайн-пользователей
   - автоматическая очистка истории сообщений раз в день если количество в БД превышает порог
-  - кастомный протокол
+  - кастомный протокол с бинарным префиксом размера
 
 1. Асинхронный TCP-сервер
   ```cpp
@@ -18,10 +16,10 @@
   QHash<int, QString> idToName; // ID пользователя -> имя
   ```
 
-2. База данных PostgeSQL
+2. База данных PostgeSQL/SQLite
     - в таблице users хранятся данные пользователей
     - в таблице history хранится архив сообщений
-    - запросы к БД с защитой от SQL-инъекций (prepare)
+    - запросы к БД с защитой от SQL-инъекций
 
 3. Безопасность
     - при регистрации генерируется соль, добавляется к паролю пользователя, полученная строка хэшируется SHA-256:
@@ -48,26 +46,36 @@
     int respCode = static_cast<int>(response);
     QString formatedData = data.isEmpty() ? QString::number(respCode) : QString("%1 %2").arg(respCode).arg(data);
     QByteArray bArrData = formatedData.toUtf8();
-    int dataSize = bArrData.size();
-    QByteArray packet = QByteArray::number(dataSize).rightJustified(4, '0') + bArrData;
+    qint32 dataSize = bArrData.size();
+
+    QByteArray packet;
+    QDataStream stream(&packet, QIODeviceBase::WriteOnly);
+    stream << dataSize;
+    packet += bArrData;
     client->write(packet);
 }
 ```
   - получение пакета от клиента: 
 ```cpp
-      connect(newClient, &QTcpSocket::readyRead, this, [this, newClient]() {
+    void wServerClass::onNewConnection() {
+    QTcpSocket* newClient = server.nextPendingConnection();
+    auto* state = new clientState{0, true};
+    int descr = newClient->socketDescriptor();
+
+    connect(newClient, &QTcpSocket::readyRead, this, [this, state, newClient]() {
         while (true) {
-            if (waitingForSize) {
-                if (newClient->bytesAvailable() < 4) return; // если не пришли первые 4 байта ждём дальше
-                QByteArray sizeBytes = newClient->read(4); // когда пришли читаем размер 
-                sizeOfData = sizeBytes.toInt();
-                waitingForSize = false;
+            if (state->waitingForSize) {
+                if (newClient->bytesAvailable() < 4) return;
+                QByteArray sizeBytes = newClient->read(4);
+                QDataStream stream(sizeBytes);
+                stream >> state->sizeOfData;
+                state->waitingForSize = false;
             }
             else {
-                if (newClient->bytesAvailable() < sizeOfData) return; // ждём весь пакет
-                QByteArray data = newClient->read(sizeOfData); // читаем
-                processClientMsg(newClient, data); //передаём в метод для обработки
-                waitingForSize = true; // ждём размер следующего пакета
+                if (newClient->bytesAvailable() < state->sizeOfData) return;
+                QByteArray data = newClient->read(state->sizeOfData);
+                processClientMsg(newClient, data);
+                state->waitingForSize = true;
             }
         }
         });
@@ -82,25 +90,22 @@
     case clientQuery::Login:
         handleLogin(client, textMsg);
         break;
-    case clientQuery::Logout:
-        handleLogout(client, textMsg);
-        break;
     ...
 ```
   - история рассылается при авторизации и открытии вкладки личных сообщений (по запросу клиента)
   - список онлайна рассылается при входе и выходе
 
-  Скачать сборку под Windows: https://github.com/L3n44nd/OnlineChatServer/releases/download/v1.0.1/OnlineChatServer.zip
-  
-  В файле конфигурации `config.ini` прописать:  
+Cборка с SQLite под Windows: [https://github.com/L3n44nd/OnlineChatServer/releases/download/v1.1.0/ServerSQLite.zip]
+
+Сборка с PostgreSQL [https://github.com/L3n44nd/OnlineChatServer/releases/download/v1.1.1/ServerPostgreSQL.zip]
+
+Для PostgreSQL в файле конфигурации `config.ini` прописать:  
 ```
 [DB]
 host=localhost
-port=1402
+port=(кроме 1403)
 name=(имя БД)
 user=(имя пользователя)
 password=(пароль)
 ```
-Или сборка с SQLite (файл БД автоматически создаётся при запуске сервера): https://github.com/L3n44nd/OnlineChatServer/releases/download/v1.0.0/OnlineChatServer.zip
 
-P.S. Приложение работает с портами 1402 или 1403 (версия на PostgreSQL с обоими). Если порт занят может не устанавливаться соединение. Планируется поменять порты на гарантированно свободные. 
