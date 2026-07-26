@@ -6,7 +6,6 @@
 enum class clientQuery {
 	Register,
 	Login,
-	Logout,
 	Message,
 	PrivateMessage,
 	NameChange,
@@ -22,7 +21,6 @@ enum class serverResponse {
 	UsernameExists,
 	Message, 
 	PrivateMessage, 
-	NameTooLong,
 	UpdateOnline,
 	SendHistory,
 	AlreadyAuthorized
@@ -36,7 +34,6 @@ inline const char* toStr(serverResponse resp) {
 	case serverResponse::WrongPassword: return "Неверный пароль";
 	case serverResponse::UserNotFound: return "Пользователь не найден";
 	case serverResponse::UsernameExists: return "Имя занято";
-	case serverResponse::NameTooLong: return "Слишком длинное имя";
 	case serverResponse::UpdateOnline: return "Обновление онлайна";
 	case serverResponse::PrivateMessage: return "Личное сообщение";
 	case serverResponse::Message: return "Сообщение";
@@ -51,7 +48,6 @@ inline const char* toStrQ(clientQuery query) {
 	{
 	case clientQuery::Register: return "Регистрация";
 	case clientQuery::Login: return "Авторизация";
-	case clientQuery::Logout: return "Выход";
 	case clientQuery::Message: return "Сообщение";
 	case clientQuery::PrivateMessage: return "Личное сообщение";
 	case clientQuery::NameChange: return "Смена имени";
